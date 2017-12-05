@@ -1,0 +1,20 @@
+syntax = "proto3"; // 指定proto版本
+package hi;     // 指定包名
+
+option go_package = "hi"; // 可选前缀
+
+// 定义Hello服务
+service Hi {
+	// SayHi 定义SayHello方法
+	rpc SayHi(HiRequest) returns (HiResponse) {}
+}
+
+// HelloRequest 请求结构
+message HiRequest {
+	string name = 1;
+}
+
+// HelloResponse 响应结构
+message HiResponse {
+    string message = 1;
+}

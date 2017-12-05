@@ -1,0 +1,20 @@
+{
+    "IP": "",
+    "Port": "3201",
+    "baseCfg": {
+        "etcdCfg": {
+            "EndPoints": ["http://127.0.0.1:2379"],
+            "User": "iceberg",
+            "Psw": "123456",
+            "Timeout": 3
+        },
+        "zipkinCfg": {
+            "EndPoints": ""
+        },
+        "staffCfg": {
+            "name": "",
+            "email": "",
+            "mobile": ""
+        }
+    }
+}
