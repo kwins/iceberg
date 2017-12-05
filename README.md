@@ -50,7 +50,7 @@ gatesvr在转发请求时，会按接口树层级进行过滤。也就是说，�
 - 服务请求路径： /services/v1/hello/hello/SayHello        
 
 ## 协议
-[Iceberg协议文档.md](https://gitee.com/wlaier/iceberg/blob/master/doc/Iceberg协议说明.md)
+[Iceberg协议文档.md](https://github.com/kwins/iceberg/blob/master/doc/Iceberg协议说明.md)
 
 ## 开发效率
 
@@ -61,7 +61,7 @@ gatesvr在转发请求时，会按接口树层级进行过滤。也就是说，�
 Download and install,go version 1.9+ is required
 
 ```
-go get gitee.com/wlaier/iceberg
+go get github.com/kwins/iceberg
 ```
 
 - start etcd server([etcd下载地址](https://github.com/coreos/etcd/releases/))
@@ -70,6 +70,12 @@ go get gitee.com/wlaier/iceberg
 - ./gatesvr
 - ./s1
 - ./s2
+
+- remove demo
+
+```cmd
+make clean
+```
 
 ```cmd
 请使用自己内网IP
