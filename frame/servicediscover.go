@@ -317,7 +317,7 @@ func (discover *Discover) selfRegist() error {
 		}
 		log.Debugf("set %s=%s", svrURI, discover.name)
 		svrURI = uri + "/provider/instances/" + discover.localListenAddr
-		resp, err := discover.kapi.Grant(context.TODO(), 0)
+		resp, err := discover.kapi.Grant(context.TODO(), 6)
 		if err != nil {
 			return err
 		}
