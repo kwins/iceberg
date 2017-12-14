@@ -1,15 +1,16 @@
 package frame
 
 import (
+	"context"
 	"testing"
 
 	"github.com/kwins/iceberg/frame/protocol"
 	"github.com/nobugtodebug/go-objectid"
-	"github.com/opentracing/opentracing-go"
 	zipkin "github.com/openzipkin/zipkin-go-opentracing"
 )
 
 func TestTracer(t *testing.T) {
+
 	s := DiscoverInstance()
 	s.StartZipkinTrace("http://localhost:94111", "127.0.0.1", "gateway")
 
@@ -22,38 +23,15 @@ func TestTracer(t *testing.T) {
 	task.ServeMethod = "Test"
 	task.ServeURI = "/services/test"
 
-	span := opentracing.StartSpan("gateway")
-
+	span := SpanWithTask(context.TODO(), &task)
 	pp := span.Context().(zipkin.SpanContext)
-	println(">>>>>1>>>>>>>>TraceID:", pp.TraceID,
-		"SpanID:", pp.SpanID,
-		" Sampled:", pp.Sampled,
-		" Baggage:", pp.Baggage,
-		" ParentSpanID:", pp.ParentSpanID,
-		" Flags:", pp.Flags)
 
-	if err := opentracing.GlobalTracer().Inject(span.Context(), opentracing.TextMap, &task); err != nil {
-		t.Error(err.Error())
-	} else {
-		t.Log(task.String())
+	span1 := SpanFromTask(&task)
+	span1.SetTag("serverSide", "here")
+
+	pp1 := span1.Context().(zipkin.SpanContext)
+
+	if *pp1.ParentSpanID != pp.SpanID {
+		t.Errorf("%v:%v", pp1.ParentSpanID, pp.SpanID)
 	}
-
-	println("============================ fake send to server =============================")
-
-	wireContext, err := opentracing.GlobalTracer().Extract(opentracing.TextMap, &task)
-	if err != nil {
-		t.Error(err.Error())
-	}
-
-	spf := opentracing.FollowsFrom(wireContext)
-	span2 := opentracing.GlobalTracer().StartSpan("server1", spf)
-
-	span2.SetTag("serverSide", "here")
-	pp = span2.Context().(zipkin.SpanContext)
-	println(">>>>>2>>>>>>>>TraceID:", pp.TraceID,
-		"SpanID:", pp.SpanID,
-		" Sampled:", pp.Sampled,
-		" Baggage:", pp.Baggage,
-		" ParentSpanID:", *pp.ParentSpanID,
-		" Flags:", pp.Flags)
 }

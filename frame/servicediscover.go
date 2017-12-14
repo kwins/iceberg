@@ -317,7 +317,11 @@ func (discover *Discover) selfRegist() error {
 		}
 		log.Debugf("set %s=%s", svrURI, discover.name)
 		svrURI = uri + "/provider/instances/" + discover.localListenAddr
-		resp, err := discover.kapi.Grant(context.TODO(), 6)
+		resp, err := discover.kapi.Grant(context.TODO(), 0)
+		if err != nil {
+			return err
+		}
+		_, err = discover.kapi.KeepAlive(context.TODO(), resp.ID)
 		if err != nil {
 			return err
 		}
@@ -326,10 +330,19 @@ func (discover *Discover) selfRegist() error {
 		if err != nil {
 			return err
 		}
-		_, err = discover.kapi.KeepAlive(context.TODO(), resp.ID)
-		if err != nil {
-			return err
-		}
+		// 主动获取本服务节点状态，防止意外情况
+		go func(k, v string, leaseid clientv3.LeaseID) {
+			for {
+				_, err = discover.kapi.Get(context.TODO(), k)
+				if err != nil {
+					log.Fatalf("iceberg:%s svr uri %s get fail,detail=%s", discover.name, k, err.Error())
+					discover.kapi.Put(context.TODO(), k, v, clientv3.WithLease(resp.ID))
+				}
+				select {
+				case <-time.After(time.Second * 2):
+				}
+			}
+		}(svrURI, discover.localListenAddr, resp.ID)
 	}
 	return nil
 }

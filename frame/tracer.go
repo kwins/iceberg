@@ -28,7 +28,7 @@ func SpanWithTask(ctx context.Context, task *protocol.Proto) opentracing.Span {
 func SpanFromTask(task *protocol.Proto) opentracing.Span {
 	if tracer := opentracing.GlobalTracer(); tracer != nil {
 		var span opentracing.Span
-		spanCtx, err := tracer.Extract(opentracing.TextMap, &task)
+		spanCtx, err := tracer.Extract(opentracing.TextMap, task)
 		if err != nil {
 			span = tracer.StartSpan(task.GetServeMethod())
 		} else {
