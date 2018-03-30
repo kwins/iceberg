@@ -93,7 +93,7 @@ make clean
 ```
 
 ## 服务详细安装步骤
-- 1，安装google protoc编译器,下载ETCD
+* 1，安装google protoc编译器,下载ETCD
     - [protoc下载地址](https://github.com/google/protobuf/releases/tag/v3.5.0)
     - [protoc安装教程](http://www.jianshu.com/p/0a70eef1bd4a)
     - [etcd下载地址](https://github.com/coreos/etcd/releases/)
@@ -101,8 +101,6 @@ make clean
 * 2，下载相关依赖包
 
 ```get
-go get github.com/opentracing/opentracing-go
-go get github.com/openzipkin/zipkin-go-opentracing
 go get github.com/coreos/etcd/clientv3
 go get github.com/nobugtodebug/go-objectid
 go get github.com/golang/protobuf/proto
@@ -122,8 +120,6 @@ go get github.com/golang/protobuf/proto
 ```proto
 syntax = "proto3"; // 指定proto版本
 package hello;     // 指定包名
-
-// option go_package = "prefix"; 可选前缀
 
 // 定义Hello服务
 service Hello {
