@@ -191,7 +191,7 @@ func main() {
 
 * 8，
 ```cmd
-curl -H "Content-Type:application/json" -d '{"name":"wlaier"}' 'http://localhost:3201/service/v1/hello/sayhello'
+curl -H "Content-Type:application/json" -d '{"name":"wlaier"}' 'http://${内网IP}:3201/service/v1/hello/sayhello'
 ```
 
 ## TODO：
