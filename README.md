@@ -26,7 +26,7 @@
 
 - 1. 采用go语言开发，官方提供golang sdk。易于开发
 - 2. 运维和布署更简单
-- 3: clientv3使用了gRPC与etcd通信，更加高效
+- 3. clientv3使用了gRPC与etcd通信，更加高效
 
 Iceberg采用RESTful风格的接口,正好可以天衣无缝的和etcd的树型存储结构配合。各个服务连接到etcd后，通过订阅者模式来感知系统拓扑的变化。
 
@@ -41,19 +41,30 @@ Iceberg服务体系是一个树形结构，它反映的是RESTful风格的接口
 
 ## 服务注册节点说明
 ```text
-provider节点表示它的父节点对应的接口由什么程序实现其功能并提供服务。
-provider保存该类型程序的布署情况。有三个子节点：
-    - config  Value:是这一类型服务的通用配置
-    - name    Value:该类型服务的名称
-    - instance  目录节点，它的子节点表示该服务布署的实例
-        - 服务实例节点，Key为实例的LISTEN地址(IP:Port); Value为实例在一致性hash环上的hashkey
-	- allowed 该服务所有的方法，同时从其可得知此方法是否可以无认证访问
-gateway在转发请求时，会按接口树层级进行过滤。也就是说，如果在某个层次上设置了禁用，那么它的子节点的所代表的接口也都会被禁用。但是在接口匹配时，会优先匹配层次更深的接口。这么做的目的是为了能最方便的实现服务降级和服务粒度的拆分。关于服务降级非常容易理解，不再多说。
+每个服务会在Etcd中注册本服务信息，主要包括配置，服务名称，实例节点地址，实例节点方法
+如下为一个订单服务在etcd中注册的服务信息：
+
+/services/v1/order/provider/instances/10.25.0.22:5768
+10.25.0.22:5768
+/services/v1/order/provider/name
+Order
+/services/v1/order/create/provider/allowed/false
+create
+/services/v1/order/refund/provider/allowed/false
+refund
+/services/v1/order/state/provider/allowed/false
+state
+
+instances:  表示服务实例节点地址信息
+name:		为服务名称
+allowed:	方法名称和服务授权
+
+gateway在转发请求时，会按接口树层级进行过滤。也就是说，gateway会首先找到相应的服务，将数据传输给此服务，再由此服务去找到相应的方法，执行逻辑代码后返回信息给gateway，gateway再返回给请求方。在接口匹配时，目前为完全匹配。 
 
 服务粒度的拆分是考虑可以出现这样的情况，随着业务的发展，一个接口节点可能会细分出很多个子节点，这些子节点的所代表的功能大小不一。这种情况下，我们可以用一个新的服务来处理某一个或者某些节点的接口，剩下的节点继续由老的服务来处理。
 ```
 
-* 服务路径生成规则
+* 服务路径是由proto-gen-go按照如下规则自动生成
 
 - [根]/[版本号]/[服务名称]/[服务方法]
 
@@ -196,3 +207,6 @@ curl -H "Content-Type:application/json" -d '{"name":"wlaier"}' 'http://${内网I
 
 ## TODO：
 - 完善失败重试机制
+
+## QA
+QQ群：637253339
