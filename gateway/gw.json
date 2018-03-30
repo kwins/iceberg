@@ -1,4 +1,5 @@
 {
+    "authorization": false,
     "IP": "",
     "Port": "3201",
     "baseCfg": {
@@ -7,14 +8,6 @@
             "User": "iceberg",
             "Psw": "123456",
             "Timeout": 3
-        },
-        "zipkinCfg": {
-            "EndPoints": ""
-        },
-        "staffCfg": {
-            "name": "",
-            "email": "",
-            "mobile": ""
         }
     }
 }

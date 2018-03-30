@@ -1,9 +1,11 @@
 package frame
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"net"
+	"net/textproto"
 	"strings"
 	"syscall"
 	"time"
@@ -15,6 +17,16 @@ import (
 const (
 	Normalformat = "2006-01-02 15:04:05"
 )
+
+// ValueFrom 从Context获取KEY Value对
+func ValueFrom(ctx context.Context, key string) string {
+	k := textproto.CanonicalMIMEHeaderKey(key)
+	v, ok := ctx.Value(k).(string)
+	if ok {
+		return v
+	}
+	return ""
+}
 
 // Netip 返回内网IP地址
 func Netip() string {
@@ -57,6 +69,7 @@ func RandPort() string {
 // cell time.Duration 超时的时间粒度
 // ticks int64 超时的时间滴答数。
 func ShapingTime(begin time.Time, cell time.Duration, ticks int64) time.Time {
-	_exp := (begin.UnixNano()/int64(cell) + 1 + ticks) * int64(cell)
-	return time.Unix(0, _exp)
+	a := begin.UnixNano() / int64(cell)
+	b := (a + 1 + ticks) * int64(cell)
+	return time.Unix(0, b)
 }

@@ -1,10 +1,9 @@
 package frame
 
 import (
-	"sync"
-
 	log "github.com/kwins/iceberg/frame/icelog"
 	"github.com/kwins/iceberg/frame/protocol"
+	"sync"
 )
 
 const bucketNo = 16
@@ -24,7 +23,7 @@ func NewDispatcher() *Dispatcher {
 		}}
 	dispatcher.reqs = make([]*Holder, bucketNo)
 	for i := range dispatcher.reqs {
-		dispatcher.reqs[i] = NewHolder()
+		dispatcher.reqs[i] = NewHolder(i)
 	}
 	return dispatcher
 }
@@ -37,7 +36,8 @@ func (dispatcher *Dispatcher) Incoming(b []byte, ca *ConnActor) {
 	if ch := h.Get(resp.GetRequestID()); ch != nil {
 		ch <- &resp
 	} else {
-		log.Warnf("%s not found origin request[%d]. drop dispatcher response detail:%s", resp.PrintableBizID(), resp.RequestID, resp.String())
+		log.Warnf("%s not found origin request[%d]. drop dispatcher response detail:%s",
+			resp.GetBizid(), resp.GetRequestID(), resp.String())
 	}
 }
 

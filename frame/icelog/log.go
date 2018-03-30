@@ -53,14 +53,15 @@ type Logger struct {
 // NewLogger new logger
 func NewLogger() *Logger {
 	defaultLogger = new(Logger)
-	defaultLogger.console = log.New(os.Stdout, "", log.LstdFlags)
+	defaultLogger.console = log.New(os.Stdout, "", log.Ldate|log.Lmicroseconds)
 	defaultLogger.level = DEBUG
-	defaultLogger.layout = "2006/01/02 15:04:05"
+	defaultLogger.layout = "2006-01-02 15:04:05.999"
 	defaultLogger.showLine = true
 	return defaultLogger
 }
 
-func (l *Logger) formatAndOutput(level int, format string, args ...interface{}) {
+// FormatAndOutput format and out put
+func (l *Logger) FormatAndOutput(calldepth, level int, format string, args ...interface{}) {
 	if level < l.level {
 		return
 	}
@@ -80,7 +81,7 @@ func (l *Logger) formatAndOutput(level int, format string, args ...interface{}) 
 	if l.file != nil {
 		l.file.Write(l.formatLog(inf, code, level))
 	} else {
-		l.console.Output(3, l.formatLog(inf, code, level))
+		l.console.Output(calldepth, l.formatLog(inf, code, level))
 	}
 }
 
@@ -107,54 +108,64 @@ func SetLog(filename, level string) {
 	}
 }
 
+// SetLevel SetLevel
+func SetLevel(level string) {
+	defaultLogger.level = levelFlagsReverse[strings.ToUpper(level)]
+}
+
 // Debug global debug
 func Debug(args ...interface{}) {
-	defaultLogger.formatAndOutput(DEBUG, "", args...)
+	defaultLogger.FormatAndOutput(3, DEBUG, "", args...)
 }
 
 // Warn defalut wawrn
 func Warn(args ...interface{}) {
-	defaultLogger.formatAndOutput(WARNING, "", args...)
+	defaultLogger.FormatAndOutput(3, WARNING, "", args...)
 }
 
 // Info default info
 func Info(args ...interface{}) {
-	defaultLogger.formatAndOutput(INFO, "", args...)
+	defaultLogger.FormatAndOutput(3, INFO, "", args...)
 }
 
 // Error default error
 func Error(args ...interface{}) {
-	defaultLogger.formatAndOutput(ERROR, "", args...)
+	defaultLogger.FormatAndOutput(3, ERROR, "", args...)
 }
 
 // Fatal default fatal
 func Fatal(args ...interface{}) {
-	defaultLogger.formatAndOutput(FATAL, "", args...)
+	defaultLogger.FormatAndOutput(3, FATAL, "", args...)
 }
 
 // Debugf global debug
 func Debugf(fmt string, args ...interface{}) {
-	defaultLogger.formatAndOutput(DEBUG, fmt, args...)
+	defaultLogger.FormatAndOutput(3, DEBUG, fmt, args...)
 }
 
 // Warnf defalut wawrn
 func Warnf(fmt string, args ...interface{}) {
-	defaultLogger.formatAndOutput(WARNING, fmt, args...)
+	defaultLogger.FormatAndOutput(3, WARNING, fmt, args...)
 }
 
 // Infof default info
 func Infof(fmt string, args ...interface{}) {
-	defaultLogger.formatAndOutput(INFO, fmt, args...)
+	defaultLogger.FormatAndOutput(3, INFO, fmt, args...)
 }
 
 // Errorf default error
 func Errorf(fmt string, args ...interface{}) {
-	defaultLogger.formatAndOutput(ERROR, fmt, args...)
+	defaultLogger.FormatAndOutput(3, ERROR, fmt, args...)
 }
 
 // Fatalf default fatal
 func Fatalf(fmt string, args ...interface{}) {
-	defaultLogger.formatAndOutput(FATAL, fmt, args...)
+	defaultLogger.FormatAndOutput(3, FATAL, fmt, args...)
+}
+
+// Default default log
+func Default() *Logger {
+	return defaultLogger
 }
 
 // Close Close

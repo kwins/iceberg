@@ -6,18 +6,21 @@
 ```protobuf
 message Proto{
     string Bizid =1; 
-    map<string,string> TraceMap = 2;
-	int64  RequestID = 3; 
-	string ServeURI = 4; 
-    RestfulFormat Format = 5; 
-    string ServeMethod = 6; 
-	RestfulMethod Method = 7;
-	bytes Body = 8; 
-	bytes Err  = 9;
+	map<string,string> Header = 2;
+    map<string,string> TraceMap = 3;
+	int64  RequestID = 4; 
+	string ServeURI = 5; 
+    RestfulFormat Format = 6; 
+    string ServeMethod = 7; 
+	RestfulMethod Method = 8;
+	bytes Body = 9; 
+	bytes Err  = 10;
 }
 ```
 
 * Bizid: 全局唯一ID，用于跨服务多实例对请求进行追踪，一个请求夸多服务，会使用同一个Bizid。
+
+* Header: HTTP Header
 
 * TraceMap：记录Trace信息，集成zipkin trace功能
 

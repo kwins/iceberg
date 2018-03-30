@@ -19,6 +19,7 @@ import math "math"
 
 import (
 	"context"
+
 	"github.com/kwins/iceberg/frame"
 	"github.com/kwins/iceberg/frame/config"
 	"github.com/kwins/iceberg/frame/protocol"
@@ -37,7 +38,7 @@ const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
 
 // HelloRequest 请求结构
 type HiRequest struct {
-	Name string `protobuf:"bytes,1,opt,name=name" json:"name,omitempty" xml:"name,omitempty"`
+	Name string `protobuf:"bytes,1,opt,name=name" json:"name" xml:"name,omitempty"`
 }
 
 func (m *HiRequest) Reset()                    { *m = HiRequest{} }
@@ -54,7 +55,7 @@ func (m *HiRequest) GetName() string {
 
 // HelloResponse 响应结构
 type HiResponse struct {
-	Message string `protobuf:"bytes,1,opt,name=message" json:"message,omitempty" xml:"message,omitempty"`
+	Message string `protobuf:"bytes,1,opt,name=message" json:"message" xml:"message,omitempty"`
 }
 
 func (m *HiResponse) Reset()                    { *m = HiResponse{} }
@@ -82,16 +83,13 @@ var _ context.Context
 
 // Client API for Hi service
 // iceberg server version,relation to server uri.
-var hi_version = frame.SrvVersionName[frame.SV1]
+var hiVersion = frame.SrvVersionName[frame.SV1]
 
 // SayHi 定义SayHello方法
-func SayHi(ctx context.Context, in *HiRequest) (*HiResponse, error) {
-	task, err := frame.ReadyTask(ctx, "SayHi", "hi/hi", in)
+func SayHi(ctx frame.Context, in *HiRequest, opts ...frame.CallOption) (*HiResponse, error) {
+	task, err := frame.ReadyTask(ctx, "sayhi", "hi", hiVersion, in, opts...)
 	if err != nil {
 		return nil, err
-	}
-	if span := frame.SpanWithTask(ctx, task); span != nil {
-		defer span.Finish()
 	}
 	back, err := frame.DeliverTo(task)
 	if err != nil {
@@ -99,7 +97,7 @@ func SayHi(ctx context.Context, in *HiRequest) (*HiResponse, error) {
 	}
 
 	var out HiResponse
-	if err := protocol.Unpack(task.GetFormat(), back.GetBody(), &out); err != nil {
+	if err := protocol.Unpack(back.GetFormat(), back.GetBody(), &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -107,7 +105,7 @@ func SayHi(ctx context.Context, in *HiRequest) (*HiResponse, error) {
 
 // HiServer Server API for Hello service
 type HiServer interface {
-	SayHi(ctx context.Context, in *HiRequest) (*HiResponse, error)
+	SayHi(c frame.Context) error
 }
 
 // RegisterHiServer register HiServer with etcd info
@@ -116,36 +114,24 @@ func RegisterHiServer(srv HiServer, cfg *config.BaseCfg) {
 }
 
 // hi server SayHi handler
-func hiSayHiHandler(srv interface{}, ctx context.Context, format protocol.RestfulFormat, data []byte) ([]byte, error) {
-	var in HiRequest
-	if err := protocol.Unpack(format, data, &in); err != nil {
-		return nil, err
-	}
-
-	hiResp, err := srv.(HiServer).SayHi(ctx, &in)
-	if err != nil {
-		return nil, err
-	}
-	b, err := protocol.Pack(format, hiResp)
-	if err != nil {
-		return nil, err
-	}
-	return b, nil
+func hiSayHiHandler(srv interface{}, ctx frame.Context) error {
+	return srv.(HiServer).SayHi(ctx)
 }
 
 // hi server describe
 var hiServerDesc = frame.ServiceDesc{
-	Version:     hi_version,
+	Version:     hiVersion,
 	ServiceName: "Hi",
 	HandlerType: (*HiServer)(nil),
 	Methods: []frame.MethodDesc{
 		{
-			MethodName: "SayHi",
+			Allowed:    "false",
+			MethodName: "sayhi",
 			Handler:    hiSayHiHandler,
 		},
 	},
 	ServiceURI: []string{
-		"/services/" + hi_version + "/hi/hi",
+		"/services/" + hiVersion + "/hi/hi",
 	},
 	Metadata: "hi.Hi",
 }

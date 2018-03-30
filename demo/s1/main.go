@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	pb "github.com/kwins/iceberg/demo/s1/pb"
+	"github.com/kwins/iceberg/frame"
 	"github.com/kwins/iceberg/frame/config"
 )
 
@@ -30,10 +31,19 @@ func main() {
 	etcdCfg.Psw = "123456"
 	etcdCfg.Timeout = 3
 
-	var zipkinCfg config.ZipkinCfg
-	// zipkinCfg.EndPoints = "http://localhost:9411/api/v1/spans"
 	baseCfg.Etcd = etcdCfg
-	baseCfg.Zipkin = zipkinCfg
+	// 设置Middleware
+	frame.Prepare(preprareMiddleware, afterMiddleware)
+
+	s := new(Hello)
 	// 直接注册就行了
-	pb.RegisterHelloServer(new(Hello), &baseCfg)
+	pb.RegisterHelloServer(s, &baseCfg)
+}
+
+func preprareMiddleware(c frame.Context) error {
+	c.Response().SetHeader("Content-Type", "application/json;utf8")
+	return nil
+}
+func afterMiddleware(c frame.Context) error {
+	return nil
 }

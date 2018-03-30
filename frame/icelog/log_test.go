@@ -22,7 +22,7 @@ func TestConsoleLog(t *testing.T) {
 // }
 
 // func TestFileWriter(t *testing.T) {
-// 	fw := NewFileWriter("/Users/quinn/goproj/laoyuegou.com/src/iceberg/frame/icelog/ice.log")
+// 	fw := NewFileWriter("/Users/quinn/goproj/laoyuegou.com/src/github.com/kwins/iceberg/frame/icelog/ice.log")
 // 	for i := 0; i < math.MaxInt64; i++ {
 // 		fw.Write(fmt.Sprint(i) + "\n")
 // 		time.Sleep(time.Microsecond * 10)
@@ -31,7 +31,7 @@ func TestConsoleLog(t *testing.T) {
 // }
 
 // func TestFileWriter(t *testing.T) {
-// 	SetLog("/Users/quinn/goproj/laoyuegou.com/src/iceberg/frame/icelog/ice.log", "debug")
+// 	SetLog("/Users/quinn/goproj/laoyuegou.com/src/github.com/kwins/iceberg/frame/icelog/ice.log", "debug")
 // 	Debug("c==1", " d=2")
 // 	Debugf("c==%d d=%d", 1, 2)
 // 	Info("c==1", " d=2")
@@ -48,7 +48,7 @@ func TestConsoleLog(t *testing.T) {
 // }
 
 // func TestFileWalk(t *testing.T) {
-// 	filepath.Walk("/Users/quinn/goproj/laoyuegou.com/src/iceberg/frame/icelog/log.go", func(path string, info os.FileInfo, err error) error {
+// 	filepath.Walk("/Users/quinn/goproj/laoyuegou.com/src/github.com/kwins/iceberg/frame/icelog/log.go", func(path string, info os.FileInfo, err error) error {
 // 		if info == nil {
 // 			return err
 // 		}

@@ -2,7 +2,6 @@ package frame
 
 import (
 	"context"
-	"errors"
 	"net"
 	"net/http"
 	"sync"
@@ -11,7 +10,6 @@ import (
 
 	log "github.com/kwins/iceberg/frame/icelog"
 	"github.com/kwins/iceberg/frame/protocol"
-	"github.com/opentracing/opentracing-go"
 )
 
 const (
@@ -21,17 +19,9 @@ const (
 	CA_ABANDON   = iota // 3:重连失败放弃connactor对象
 )
 
-// 定义错误类型
-var (
-	ErrBlocking       = errors.New("operation blocking")
-	ErrClosed         = errors.New("connection is closed")
-	ErrTimeout        = errors.New("netio timeout")
-	ErrMethodNotFound = errors.New("method not found")
-)
-
 var connActorID uint32 // 分配ID的静态变量，用原子操作改变它的值
 
-const sendPackBufSize = 4096
+const sendPackBufSize = 1024
 
 // ConnActorType TCP 连接类型 1-passive 2-active
 type ConnActorType int8
@@ -43,39 +33,51 @@ const (
 
 // ConnActor 连接对象
 type ConnActor struct {
-	id            uint32   //
-	c             net.Conn //
-	reconn        bool     //
-	connType      ConnActorType
-	requestHolder *Dispatcher //
+	id uint32
 
-	status int32 // 0:连接正常  1:连接已断开  2:正在重连 3:重连失败放弃connactor对象
+	c net.Conn
 
-	sendChan chan []byte    //
-	stopChan chan struct{}  //
-	stopWait sync.WaitGroup //
-	// method map[string]
-	stopOnce sync.Once //
+	reconn bool
+
+	connType ConnActorType
+
+	requestHolder *Dispatcher
+
+	p *sync.Pool
+	// 0:连接正常  1:连接已断开  2:正在重连 3:重连失败放弃connactor对象
+	status int32
+
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	sendChan chan []byte
+	stopWait sync.WaitGroup
+
+	stopOnce sync.Once
 }
 
 // NewPassiveConnActor Iceberg下层服务需建立此种连接，用于接收并处理数据
 func NewPassiveConnActor(c net.Conn) *ConnActor {
 	ca := ConnActor{c: c, reconn: false}
+	ca.ctx, ca.cancel = context.WithCancel(context.TODO())
 	ca.id = atomic.AddUint32(&connActorID, CA_BROKEN)
 	ca.connType = passiveConnActor
+	ca.p = &sync.Pool{
+		New: func() interface{} {
+			return new(icecontext)
+		}}
 	ca.initConnActor(c)
-
 	return &ca
 }
 
 // NewActiveConnActor 生成一个主动的连接，主动向对端发送请求并等待响应的连接
 func NewActiveConnActor(c net.Conn) *ConnActor {
 	ca := ConnActor{c: c, reconn: true}
+	ca.ctx, ca.cancel = context.WithCancel(context.TODO())
 	ca.id = atomic.AddUint32(&connActorID, CA_BROKEN)
 	ca.requestHolder = NewDispatcher()
 	ca.connType = activeConnActor
 	ca.initConnActor(c)
-
 	return &ca
 }
 
@@ -83,7 +85,6 @@ func (connActor *ConnActor) initConnActor(c net.Conn) {
 	go ContinuousRecvPack(c, connActor.processInComing)
 
 	connActor.sendChan = make(chan []byte, sendPackBufSize)
-	connActor.stopChan = make(chan struct{})
 	connActor.stopWait.Add(1)
 	go func() {
 		defer connActor.stopWait.Done()
@@ -112,22 +113,29 @@ func (connActor *ConnActor) initConnActor(c net.Conn) {
 							}
 						} else {
 							// 准备重发
+							log.Warnf("send data to %s fail,repush to send chan len=%d", connActor.RemoteAddr(), len(msg))
 							connActor.sendChan <- msg
 							continue
 						}
+					} else {
+						failCount = 0
+						log.Debugf("send data to %s finished,data len=%d", connActor.RemoteAddr(), len(msg))
 					}
-					failCount = 0
 				}
-			case <-connActor.stopChan:
+			case <-connActor.ctx.Done():
 				var req protocol.Proto
 				for {
-					msg, ok := <-connActor.sendChan
-					if !ok {
+					select {
+					case msg, ok := <-connActor.sendChan:
+						if !ok {
+							return
+						}
+						req.UnSerialize(msg)
+						log.Warnf("drop msg %s now, msg len=%d", req.GetBizid(), len(msg))
+						connActor.requestHolder.Delete(req.RequestID)
+					default:
 						return
 					}
-					req.UnSerialize(msg)
-					log.Warnf("%s connect[%s-%s] is closed, drop msg now, msg len=%d", req.PrintableBizID, connActor.c.LocalAddr().String(), connActor.RemoteAddr(), len(msg))
-					connActor.requestHolder.Delete(req.RequestID)
 				}
 			}
 		}
@@ -145,21 +153,21 @@ func (connActor *ConnActor) Write(b []byte) error {
 	}
 	select {
 	case connActor.sendChan <- b:
+		return nil
 	default:
 		return ErrBlocking
 	}
-	return nil
 }
 
 // RequestAndReponse 向特定的服务发送请求，并等待响应
-func (connActor *ConnActor) RequestAndReponse(b []byte, requstID int64) (*protocol.Proto, error) {
+func (connActor *ConnActor) RequestAndReponse(b []byte,
+	requstID int64) (*protocol.Proto, error) {
 	// 先把请求加入请求池中
 	ch := connActor.requestHolder.Put(requstID)
 
 	if err := connActor.Write(b); err != nil {
 		return nil, err
 	}
-
 	// 等待响应
 	select {
 	case resp, ok := <-ch:
@@ -170,6 +178,8 @@ func (connActor *ConnActor) RequestAndReponse(b []byte, requstID int64) (*protoc
 		connActor.requestHolder.p.Put(ch)
 		connActor.requestHolder.Delete(requstID)
 		return resp, nil
+	case <-connActor.ctx.Done():
+		return nil, ErrClosed
 	}
 }
 
@@ -178,14 +188,15 @@ func (connActor *ConnActor) Close() {
 	connActor.stopOnce.Do(func() {
 		atomic.StoreInt32(&connActor.status, CA_ABANDON)
 		connActor.reconn = false
-		close(connActor.stopChan)
-		close(connActor.sendChan)
+		connActor.cancel()
 		connActor.stopWait.Wait()
+		close(connActor.sendChan)
 		if connActor.c != nil {
 			connActor.c.Close()
 		}
 	})
-	log.Infof("Close connactor. %s-%s", connActor.c.LocalAddr().String(), connActor.RemoteAddr())
+	log.Debugf("close connactor. %s-%s",
+		connActor.c.LocalAddr().String(), connActor.RemoteAddr())
 }
 
 // RemoteAddr 取得连接的目的地址
@@ -212,7 +223,7 @@ func (connActor *ConnActor) reDial() bool {
 			connActor.c = conn
 			go ContinuousRecvPack(connActor.c, connActor.processInComing)
 			atomic.StoreInt32(&connActor.status, CA_OK)
-			log.Infof("reDial successed. %s-%s", connActor.c.LocalAddr().String(), connActor.RemoteAddr())
+			log.Debugf("reDial successed. %s-%s", connActor.c.LocalAddr().String(), connActor.RemoteAddr())
 			return true
 		}
 		if tempDelay > time.Second {
@@ -247,42 +258,49 @@ func (connActor *ConnActor) processInComing(packbuf []byte) {
 	// 将接收到的数据交给回调接口处理
 	switch connActor.connType {
 	case passiveConnActor:
-
-		var task protocol.Proto
-		task.UnSerialize(packbuf)
-		var resp = task.Shadow()
-		var s = DiscoverInstance()
-
-		if sd := s.getMethod(task.GetServeMethod()); sd == nil {
-			resp.FillErrInfo(
-				http.StatusInternalServerError,
-				errNotFoundMethod)
-		} else {
-
-			// 默认context中携带bizid，用于分布式服务追踪
-			todo := context.TODO()
-			bizid := task.GetBizid()
-			ctx := context.WithValue(todo, "bizid", bizid)
-
-			// 如果服务增加了zipkin的配置，则在context中增加span的信息
-			if span := SpanFromTask(&task); span != nil {
-				ctx = opentracing.ContextWithSpan(ctx, span)
-				defer span.Finish()
-			}
-
-			// call method
-			out, err := sd.Handler(s.service,
-				ctx, task.GetFormat(), task.GetBody())
-			if err != nil {
-				resp.FillErrInfo(http.StatusInternalServerError, err)
-			} else {
-				resp.Body = out
-			}
+		var r protocol.Proto
+		if err := r.UnSerialize(packbuf); err != nil {
+			log.Errorf("receive bad pack,unserialize fail,detail=%s", err.Error())
+			return
 		}
-		b, _ := resp.Serialize()
-		// 写回响应数据
-		connActor.Write(b)
 
+		var w = r.Shadow()
+		c := connActor.p.Get().(*icecontext)
+		c.Reset(&r, &w)
+		var s = Instance()
+		if sd := s.getMethod(r.GetServeMethod()); sd == nil {
+			c.Response().FillErrInfo(http.StatusNotFound, ErrMethodNotFound)
+		} else {
+			log.Info(r.AsString())
+			for i := range s.prepare {
+				if err := s.prepare[i](c); err != nil {
+					c.Response().FillErrInfo(
+						http.StatusInternalServerError, err)
+					goto REPLY
+				}
+			}
+
+			if err := sd.Handler(s.service, c); err != nil {
+				c.Response().FillErrInfo(
+					http.StatusInternalServerError, err)
+			} else if len(c.Response().GetBody()) == 0 {
+				c.JSON2(0, "success", nil)
+			}
+
+			for i := range s.after {
+				if err := s.after[i](c); err != nil {
+					c.Response().FillErrInfo(
+						http.StatusInternalServerError, err)
+					c.Response().Body = nil
+				}
+			}
+		REPLY:
+			log.Info(c.Response().AsString())
+		}
+		connActor.p.Put(c)
+		// 写回响应数据
+		b, _ := c.Response().Serialize()
+		connActor.Write(b)
 	case activeConnActor:
 		connActor.requestHolder.Incoming(packbuf, connActor)
 	}

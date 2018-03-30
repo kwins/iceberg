@@ -28,27 +28,34 @@ message Proto{
     // 全局唯一ID，用于日志追踪
     string Bizid =1; 
 
+    // HTTP Header
+    map<string,string> Header = 2;
+
+    // Form Value
+    map<string,string> Form = 3;
+    
     // 集成zipkin trace功能
-    map<string,string> TraceMap = 2;
+    map<string,string> TraceMap = 4;
     
     // 递增请求ID，服务内唯一
-	int64  RequestID = 3; 
+	int64  RequestID = 5; 
     
     // 路由 Path 如：/services/v1/orderpay/order
-	string ServeURI = 4; 
+	string ServeURI = 6; 
     
     // 数据编码格式
-    RestfulFormat Format = 5; 
+    RestfulFormat Format = 7; 
     
     // 服务方法 如：CreateOrderWithPay
-    string ServeMethod = 6; 
+    string ServeMethod = 8; 
     
     // HTTP Method
-	RestfulMethod Method = 7;
+	RestfulMethod Method = 9;
     
+    string RemoteAddr = 10;
     // 请求/响应信息
-	bytes Body = 8; 
+	bytes Body = 11; 
     
     // 响应错误信息，Body 和 Err 互斥
-	bytes Err  = 9;
+	bytes Err  = 12;
 }

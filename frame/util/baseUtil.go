@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kwins/iceberg/frame/config"
+
 	"github.com/garyburd/redigo/redis"
 )
 
@@ -65,11 +66,17 @@ func NewRedisPool(cfg *config.RedisCfg) *redis.Pool {
 	}
 }
 
+var hostName string
+
 // GetHostname 获取服务器主机名称
 func GetHostname() string {
-	name, err := os.Hostname()
-	if err != nil {
-		name = "unknow"
+	if hostName == "" {
+		var err error
+		hostName, err = os.Hostname()
+		if err != nil {
+			hostName = "unknow"
+		}
+		return hostName
 	}
-	return name
+	return hostName
 }

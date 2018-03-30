@@ -7,6 +7,12 @@ package hello;     // 指定包名
 service Hello {
 	// SayHello 定义SayHello方法
 	rpc SayHello(HelloRequest) returns (HelloResponse) {}
+	// 设置了 stream 代表允许无认证访问
+	rpc GetExample(stream HelloRequest) returns (HelloResponse) {}
+	rpc PostExample(HelloRequest) returns (stream HelloResponse) {}
+	rpc PostFormExample(HelloRequest) returns (HelloResponse) {}
+
+	rpc Timeout(HelloRequest) returns (HelloResponse) {}
 }
 
 // HelloRequest 请求结构

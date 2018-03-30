@@ -19,6 +19,7 @@ import math "math"
 
 import (
 	"context"
+
 	"github.com/kwins/iceberg/frame"
 	"github.com/kwins/iceberg/frame/config"
 	"github.com/kwins/iceberg/frame/protocol"
@@ -37,7 +38,7 @@ const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
 
 // HelloRequest 请求结构
 type HelloRequest struct {
-	Name string `protobuf:"bytes,4,opt,name=name" json:"name,omitempty" xml:"name,omitempty"`
+	Name string `protobuf:"bytes,4,opt,name=name" json:"name" xml:"name,omitempty"`
 }
 
 func (m *HelloRequest) Reset()                    { *m = HelloRequest{} }
@@ -54,7 +55,7 @@ func (m *HelloRequest) GetName() string {
 
 // HelloResponse 响应结构
 type HelloResponse struct {
-	Message string `protobuf:"bytes,1,opt,name=message" json:"message,omitempty" xml:"message,omitempty"`
+	Message string `protobuf:"bytes,1,opt,name=message" json:"message" xml:"message,omitempty"`
 }
 
 func (m *HelloResponse) Reset()                    { *m = HelloResponse{} }
@@ -82,16 +83,13 @@ var _ context.Context
 
 // Client API for Hello service
 // iceberg server version,relation to server uri.
-var hello_version = frame.SrvVersionName[frame.SV1]
+var helloVersion = frame.SrvVersionName[frame.SV1]
 
 // SayHello 定义SayHello方法
-func SayHello(ctx context.Context, in *HelloRequest) (*HelloResponse, error) {
-	task, err := frame.ReadyTask(ctx, "SayHello", "hello", in)
+func SayHello(ctx frame.Context, in *HelloRequest, opts ...frame.CallOption) (*HelloResponse, error) {
+	task, err := frame.ReadyTask(ctx, "sayhello", "hello", helloVersion, in, opts...)
 	if err != nil {
 		return nil, err
-	}
-	if span := frame.SpanWithTask(ctx, task); span != nil {
-		defer span.Finish()
 	}
 	back, err := frame.DeliverTo(task)
 	if err != nil {
@@ -99,7 +97,76 @@ func SayHello(ctx context.Context, in *HelloRequest) (*HelloResponse, error) {
 	}
 
 	var out HelloResponse
-	if err := protocol.Unpack(task.GetFormat(), back.GetBody(), &out); err != nil {
+	if err := protocol.Unpack(back.GetFormat(), back.GetBody(), &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// 设置了 stream 代表允许无认证访问
+func GetExample(ctx frame.Context, in *HelloRequest, opts ...frame.CallOption) (*HelloResponse, error) {
+	task, err := frame.ReadyTask(ctx, "getexample", "hello", helloVersion, in, opts...)
+	if err != nil {
+		return nil, err
+	}
+	back, err := frame.DeliverTo(task)
+	if err != nil {
+		return nil, err
+	}
+
+	var out HelloResponse
+	if err := protocol.Unpack(back.GetFormat(), back.GetBody(), &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func PostExample(ctx frame.Context, in *HelloRequest, opts ...frame.CallOption) (*HelloResponse, error) {
+	task, err := frame.ReadyTask(ctx, "postexample", "hello", helloVersion, in, opts...)
+	if err != nil {
+		return nil, err
+	}
+	back, err := frame.DeliverTo(task)
+	if err != nil {
+		return nil, err
+	}
+
+	var out HelloResponse
+	if err := protocol.Unpack(back.GetFormat(), back.GetBody(), &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func PostFormExample(ctx frame.Context, in *HelloRequest, opts ...frame.CallOption) (*HelloResponse, error) {
+	task, err := frame.ReadyTask(ctx, "postformexample", "hello", helloVersion, in, opts...)
+	if err != nil {
+		return nil, err
+	}
+	back, err := frame.DeliverTo(task)
+	if err != nil {
+		return nil, err
+	}
+
+	var out HelloResponse
+	if err := protocol.Unpack(back.GetFormat(), back.GetBody(), &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func Timeout(ctx frame.Context, in *HelloRequest, opts ...frame.CallOption) (*HelloResponse, error) {
+	task, err := frame.ReadyTask(ctx, "timeout", "hello", helloVersion, in, opts...)
+	if err != nil {
+		return nil, err
+	}
+	back, err := frame.DeliverTo(task)
+	if err != nil {
+		return nil, err
+	}
+
+	var out HelloResponse
+	if err := protocol.Unpack(back.GetFormat(), back.GetBody(), &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -107,7 +174,15 @@ func SayHello(ctx context.Context, in *HelloRequest) (*HelloResponse, error) {
 
 // HelloServer Server API for Hello service
 type HelloServer interface {
-	SayHello(ctx context.Context, in *HelloRequest) (*HelloResponse, error)
+	SayHello(c frame.Context) error
+
+	GetExample(c frame.Context) error
+
+	PostExample(c frame.Context) error
+
+	PostFormExample(c frame.Context) error
+
+	Timeout(c frame.Context) error
 }
 
 // RegisterHelloServer register HelloServer with etcd info
@@ -116,36 +191,64 @@ func RegisterHelloServer(srv HelloServer, cfg *config.BaseCfg) {
 }
 
 // hello server SayHello handler
-func helloSayHelloHandler(srv interface{}, ctx context.Context, format protocol.RestfulFormat, data []byte) ([]byte, error) {
-	var in HelloRequest
-	if err := protocol.Unpack(format, data, &in); err != nil {
-		return nil, err
-	}
+func helloSayHelloHandler(srv interface{}, ctx frame.Context) error {
+	return srv.(HelloServer).SayHello(ctx)
+}
 
-	helloResp, err := srv.(HelloServer).SayHello(ctx, &in)
-	if err != nil {
-		return nil, err
-	}
-	b, err := protocol.Pack(format, helloResp)
-	if err != nil {
-		return nil, err
-	}
-	return b, nil
+// hello server GetExample handler
+func helloGetExampleHandler(srv interface{}, ctx frame.Context) error {
+	return srv.(HelloServer).GetExample(ctx)
+}
+
+// hello server PostExample handler
+func helloPostExampleHandler(srv interface{}, ctx frame.Context) error {
+	return srv.(HelloServer).PostExample(ctx)
+}
+
+// hello server PostFormExample handler
+func helloPostFormExampleHandler(srv interface{}, ctx frame.Context) error {
+	return srv.(HelloServer).PostFormExample(ctx)
+}
+
+// hello server Timeout handler
+func helloTimeoutHandler(srv interface{}, ctx frame.Context) error {
+	return srv.(HelloServer).Timeout(ctx)
 }
 
 // hello server describe
 var helloServerDesc = frame.ServiceDesc{
-	Version:     hello_version,
+	Version:     helloVersion,
 	ServiceName: "Hello",
 	HandlerType: (*HelloServer)(nil),
 	Methods: []frame.MethodDesc{
 		{
-			MethodName: "SayHello",
+			Allowed:    "false",
+			MethodName: "sayhello",
 			Handler:    helloSayHelloHandler,
+		},
+		{
+			Allowed:    "true",
+			MethodName: "getexample",
+			Handler:    helloGetExampleHandler,
+		},
+		{
+			Allowed:    "true",
+			MethodName: "postexample",
+			Handler:    helloPostExampleHandler,
+		},
+		{
+			Allowed:    "false",
+			MethodName: "postformexample",
+			Handler:    helloPostFormExampleHandler,
+		},
+		{
+			Allowed:    "false",
+			MethodName: "timeout",
+			Handler:    helloTimeoutHandler,
 		},
 	},
 	ServiceURI: []string{
-		"/services/" + hello_version + "/hello",
+		"/services/" + helloVersion + "/hello",
 	},
 	Metadata: "hello.Hello",
 }
@@ -153,14 +256,17 @@ var helloServerDesc = frame.ServiceDesc{
 func init() { proto.RegisterFile("hello.proto", fileDescriptor0) }
 
 var fileDescriptor0 = []byte{
-	// 135 bytes of a gzipped FileDescriptorProto
+	// 191 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe2, 0xe2, 0xce, 0x48, 0xcd, 0xc9,
 	0xc9, 0xd7, 0x2b, 0x28, 0xca, 0x2f, 0xc9, 0x17, 0x62, 0x05, 0x73, 0x94, 0x94, 0xb8, 0x78, 0x3c,
 	0x40, 0x8c, 0xa0, 0xd4, 0xc2, 0xd2, 0xd4, 0xe2, 0x12, 0x21, 0x21, 0x2e, 0x96, 0xbc, 0xc4, 0xdc,
 	0x54, 0x09, 0x16, 0x05, 0x46, 0x0d, 0xce, 0x20, 0x30, 0x5b, 0x49, 0x93, 0x8b, 0x17, 0xaa, 0xa6,
 	0xb8, 0x20, 0x3f, 0xaf, 0x38, 0x55, 0x48, 0x82, 0x8b, 0x3d, 0x37, 0xb5, 0xb8, 0x38, 0x31, 0x3d,
-	0x55, 0x82, 0x11, 0xac, 0x0e, 0xc6, 0x35, 0x72, 0xe0, 0x62, 0x05, 0x2b, 0x15, 0x32, 0xe7, 0xe2,
-	0x08, 0x4e, 0xac, 0x84, 0xb0, 0x85, 0xf5, 0x20, 0x16, 0x23, 0x5b, 0x24, 0x25, 0x82, 0x2a, 0x08,
-	0x31, 0x59, 0x89, 0x21, 0x89, 0x0d, 0xec, 0x3c, 0x63, 0x40, 0x00, 0x00, 0x00, 0xff, 0xff, 0x74,
-	0x1d, 0x84, 0x03, 0xad, 0x00, 0x00, 0x00,
+	0x55, 0x82, 0x11, 0xac, 0x0e, 0xc6, 0x35, 0xda, 0xcc, 0xc4, 0xc5, 0x0a, 0x56, 0x2b, 0x64, 0xce,
+	0xc5, 0x11, 0x9c, 0x58, 0x09, 0x61, 0x0b, 0xeb, 0x41, 0x6c, 0x46, 0xb6, 0x49, 0x4a, 0x04, 0x55,
+	0x10, 0x62, 0xb4, 0x12, 0x83, 0x90, 0x35, 0x17, 0x97, 0x7b, 0x6a, 0x89, 0x6b, 0x45, 0x62, 0x6e,
+	0x41, 0x4e, 0x2a, 0x49, 0x5a, 0x35, 0x18, 0x85, 0x6c, 0xb8, 0xb8, 0x03, 0xf2, 0x8b, 0xc9, 0xd2,
+	0x6d, 0xc0, 0x28, 0x64, 0xc7, 0xc5, 0x0f, 0xd2, 0xed, 0x96, 0x5f, 0x94, 0x4b, 0x8e, 0x09, 0x42,
+	0x66, 0x5c, 0xec, 0x21, 0x99, 0xb9, 0xa9, 0xf9, 0xa5, 0x25, 0x24, 0xe9, 0x4b, 0x62, 0x03, 0x47,
+	0x89, 0x31, 0x20, 0x00, 0x00, 0xff, 0xff, 0xb5, 0x2f, 0x8f, 0x65, 0xa1, 0x01, 0x00, 0x00,
 }

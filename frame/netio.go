@@ -3,12 +3,11 @@ package frame
 import (
 	"bytes"
 	"encoding/binary"
+	log "github.com/kwins/iceberg/frame/icelog"
+	"github.com/kwins/iceberg/frame/protocol"
 	"io"
 	"net"
 	"time"
-
-	log "github.com/kwins/iceberg/frame/icelog"
-	"github.com/kwins/iceberg/frame/protocol"
 )
 
 // EachReadBufSize buf大小
@@ -104,7 +103,7 @@ func ContinuousRecvPack(conn net.Conn, cstmFunc ProcessInComingPackFunc) {
 			length = uint32(headByte[3]) | uint32(headByte[2])<<8 | uint32(headByte[1])<<16 | uint32(headByte[0])<<24
 			if recvedBuf.Len() < int(length) {
 				// 从TCP流中读取数据还是太少,继续读
-				log.Infof("Pack head shows size=%d, buf just recv %d bytes, keep receive.", length, recvedBuf.Len())
+				log.Debugf("Pack head shows size=%d, buf just recv %d bytes, keep receive.", length, recvedBuf.Len())
 				break
 			}
 			pack := make([]byte, length)

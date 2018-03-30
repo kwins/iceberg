@@ -5,9 +5,9 @@ all:clean
 	@go get github.com/coreos/etcd/clientv3
 	@go get github.com/nobugtodebug/go-objectid
 	@go get github.com/golang/protobuf/proto
-	@go build -v -o build/gatesvr ../gatesvr
+	@go build -v -o build/gateway ../gateway
 	@go build -v -o build/s1 ./s1
 	@go build -v -o build/s2 ./s2
-	@cp ../gatesvr/gatesvr_conf.json build/
+	@cp ../gateway/gw.json build/
 clean:
 	@rm -rf build

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	hi "github.com/kwins/iceberg/demo/s2/pb"
+
 	"github.com/kwins/iceberg/frame/config"
 )
 
@@ -30,10 +31,9 @@ func main() {
 	etcdCfg.Psw = "123456"
 	etcdCfg.Timeout = 3
 
-	var zipkinCfg config.ZipkinCfg
-	// zipkinCfg.EndPoints = "http://localhost:9411/api/v1/spans"
 	baseCfg.Etcd = etcdCfg
-	baseCfg.Zipkin = zipkinCfg
+
+	s := new(Hi)
 	// 直接注册就行了
-	hi.RegisterHiServer(new(Hi), &baseCfg)
+	hi.RegisterHiServer(s, &baseCfg)
 }

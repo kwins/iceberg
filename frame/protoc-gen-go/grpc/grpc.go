@@ -36,12 +36,11 @@ package grpc
 
 import (
 	"fmt"
+	pb "github.com/kwins/iceberg/frame/protoc-gen-go/descriptor"
+	"github.com/kwins/iceberg/frame/protoc-gen-go/generator"
 	"path"
 	"strconv"
 	"strings"
-
-	pb "github.com/kwins/iceberg/frame/protoc-gen-go/descriptor"
-	"github.com/kwins/iceberg/frame/protoc-gen-go/generator"
 )
 
 // generatedCodeVersion indicates a version of the generated code.

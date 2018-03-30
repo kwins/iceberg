@@ -36,11 +36,10 @@ package irpc
 
 import (
 	"fmt"
-	"strconv"
-	"strings"
-
 	pb "github.com/kwins/iceberg/frame/protoc-gen-go/descriptor"
 	"github.com/kwins/iceberg/frame/protoc-gen-go/generator"
+	"strconv"
+	"strings"
 )
 
 // generatedCodeVersion indicates a version of the generated code.
@@ -81,7 +80,6 @@ var (
 func (ig *irpc) Init(gen *generator.Generator) {
 	ig.gen = gen
 	contextPkg = generator.RegisterUniquePackageName("context", nil)
-	// irpcPkg = generator.RegisterUniquePackageName("irpc", nil)
 }
 
 // Given a type name defined in a .proto, return its object.
@@ -155,26 +153,20 @@ func (ig *irpc) generateService(file *generator.FileDescriptor, service *pb.Serv
 	ig.P()
 	ig.P("// Client API for ", servName, " service")
 	ig.P("// iceberg server version,relation to server uri.")
-	ig.P("var ", unexport(origServName)+"_version =  frame.SrvVersionName[frame.SV1]")
+	ig.P("var ", unexport(origServName)+"Version =  frame.SrvVersionName[frame.SV1]")
 	ig.P()
-
+	srvVersion := unexport(origServName) + "Version"
 	// Client interface.
 	for i, method := range service.Method {
-		ig.gen.PrintComments(fmt.Sprintf("%s,2,%d", path, i)) // 2 means method in a service.
+		if !ig.gen.PrintComments(fmt.Sprintf("%s,2,%d", path, i)) {
+			ig.P()
+		} // 2 means method in a service.
 
 		ig.P("func ", ig.generateClientSignature(servName, method), " {")
-		if pkg := file.GetOptions().GetGoPackage(); pkg == "" {
-			ig.P("task, err := frame.ReadyTask(ctx, ", strconv.Quote(method.GetName()), ", ", strconv.Quote(unexport(servName)), " ,in)")
-		} else {
-			ig.P("task, err := frame.ReadyTask(ctx, ", strconv.Quote(method.GetName()), ", ", strconv.Quote(pkg+"/"+unexport(servName)), " ,in)")
-		}
+		ig.P("task, err := frame.ReadyTask(ctx, ", strconv.Quote(strings.ToLower(method.GetName())), ", ", strconv.Quote(unexport(servName)), ", ", srvVersion, " ,in ,opts...)")
 
 		ig.P("if err != nil {")
 		ig.P("	return nil, err")
-		ig.P("}")
-
-		ig.P("if span := frame.SpanWithTask(ctx, task); span != nil {")
-		ig.P("	defer span.Finish()")
 		ig.P("}")
 
 		ig.P("back, err := frame.DeliverTo(task)")
@@ -184,7 +176,7 @@ func (ig *irpc) generateService(file *generator.FileDescriptor, service *pb.Serv
 
 		ig.P()
 		ig.P("var out ", ig.typeName(method.GetOutputType()))
-		ig.P("if err := protocol.Unpack(task.GetFormat(), back.GetBody(), &out); err != nil {")
+		ig.P("if err := protocol.Unpack(back.GetFormat(), back.GetBody(), &out); err != nil {")
 		ig.P("	return nil, err")
 		ig.P("}")
 		ig.P("return &out, nil")
@@ -196,7 +188,7 @@ func (ig *irpc) generateService(file *generator.FileDescriptor, service *pb.Serv
 	ig.P("type ", servName, "Server interface{")
 	for _, method := range service.Method {
 		ig.P()
-		ig.P(ig.generateClientSignature(servName, method))
+		ig.P(ig.generateServerSignature(servName, method))
 		ig.P()
 	}
 	ig.P("}")
@@ -208,35 +200,27 @@ func (ig *irpc) generateService(file *generator.FileDescriptor, service *pb.Serv
 
 	for _, method := range service.Method {
 		ig.P("// ", unexport(servName), " server ", method.GetName(), " handler")
-		ig.P("func ", unexport(servName), method.GetName(), "Handler(srv interface{}, ctx context.Context, format protocol.RestfulFormat, data []byte) ([]byte, error) {")
-		ig.P("var in ", ig.typeName(method.GetInputType()))
-		ig.P("if err := protocol.Unpack(format, data, &in); err != nil {")
-		ig.P("	return nil, err")
-		ig.P("}")
-		ig.P()
-		ig.P(unexport(servName), "Resp,err := srv.(", servName, "Server).", method.GetName(), "(ctx, &in)")
-		ig.P("if err != nil {")
-		ig.P("	return nil, err")
-		ig.P("}")
-		ig.P("b, err := protocol.Pack(format, ", unexport(servName), "Resp)")
-		ig.P("if err != nil {")
-		ig.P("	return nil, err")
-		ig.P("}")
-		ig.P("return b, nil")
+		ig.P("func ", unexport(servName), method.GetName(), "Handler(srv interface{}, ctx frame.Context) error {")
+		ig.P("return srv.(", servName, "Server).", method.GetName(), "(ctx)")
 		ig.P("}")
 	}
 
 	ig.P("// ", unexport(servName), " server describe")
 
 	ig.P("var ", unexport(servName), "ServerDesc = frame.ServiceDesc {")
-	ig.P("Version:", unexport(origServName), "_version,")
+	ig.P("Version:", unexport(origServName), "Version,")
 	ig.P("ServiceName:", strconv.Quote(servName), ",")
 	ig.P("HandlerType:", "(*", servName, "Server)(nil),")
 	ig.P("Methods: []frame.MethodDesc{")
 
 	for _, method := range service.Method {
 		ig.P("{")
-		ig.P("MethodName: ", strconv.Quote(method.GetName()), ",")
+		if method.GetClientStreaming() || method.GetServerStreaming() {
+			ig.P("Allowed: ", strconv.Quote("true"), ",")
+		} else {
+			ig.P("Allowed: ", strconv.Quote("false"), ",")
+		}
+		ig.P("MethodName: ", strconv.Quote(strings.ToLower(method.GetName())), ",")
 		ig.P("Handler: ", unexport(servName)+method.GetName()+"Handler,")
 		ig.P("},")
 	}
@@ -244,9 +228,9 @@ func (ig *irpc) generateService(file *generator.FileDescriptor, service *pb.Serv
 	ig.P("},")
 	ig.P("ServiceURI: []string{")
 	if pkg := file.GetOptions().GetGoPackage(); pkg == "" {
-		ig.P(strconv.Quote("/services/"), " + ", unexport(origServName), "_version + ", strconv.Quote("/"+unexport(servName)), ",")
+		ig.P(strconv.Quote("/services/"), " + ", unexport(origServName), "Version + ", strconv.Quote("/"+unexport(servName)), ",")
 	} else {
-		ig.P(strconv.Quote("/services/"), " + ", unexport(origServName), "_version + ", strconv.Quote("/"+pkg+"/"+unexport(servName)), ",")
+		ig.P(strconv.Quote("/services/"), " + ", unexport(origServName), "Version + ", strconv.Quote("/"+pkg+"/"+unexport(servName)), ",")
 	}
 	ig.P("},")
 
@@ -262,12 +246,18 @@ func (ig *irpc) generateClientSignature(servName string, method *pb.MethodDescri
 		methName += "_"
 	}
 	reqArg := ", in *" + ig.typeName(method.GetInputType())
-	if method.GetClientStreaming() {
-		reqArg = ""
-	}
+
+	reqOpts := ", opts ...frame.CallOption"
 	respName := "*" + ig.typeName(method.GetOutputType())
-	if method.GetServerStreaming() || method.GetClientStreaming() {
-		respName = servName + "_" + generator.CamelCase(origMethName) + "Client"
+	return fmt.Sprintf("%s(ctx %s.Context%s%s) (%s, error)", methName, "frame", reqArg, reqOpts, respName)
+}
+
+// generateServerSignature returns the server-side signature for a method.
+func (ig *irpc) generateServerSignature(servName string, method *pb.MethodDescriptorProto) string {
+	origMethName := method.GetName()
+	methName := generator.CamelCase(origMethName)
+	if reservedClientName[methName] {
+		methName += "_"
 	}
-	return fmt.Sprintf("%s(ctx %s.Context%s) (%s, error)", methName, contextPkg, reqArg, respName)
+	return fmt.Sprintf("%s(c %s.Context) error", methName, "frame")
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"math"
 	"sort"
+	"sync"
 
 	log "github.com/kwins/iceberg/frame/icelog"
 )
@@ -70,6 +71,7 @@ ConsistentHash 一致性哈希类
 type ConsistentHash struct {
 	ring     map[uint32]*Node // 节点到远端地址的字典
 	nodeList _NodeListSeq     // ring当中key的有序列表
+	sync.RWMutex
 	// virtualNodes     map[uint32][]uint32 // 真实节点拥有的虚拟节点
 	// virtual2realNode map[uint32]uint32   // 虚拟节点指向的真实节点
 }
@@ -84,7 +86,7 @@ func (chash *ConsistentHash) Leastload() string {
 	var no uint32
 	var remodeAddr string
 	var minmum = int64(math.MaxInt64)
-
+	chash.RLock()
 	for k, node := range chash.ring {
 		if node.reqNo < minmum {
 			minmum = node.reqNo
@@ -92,6 +94,7 @@ func (chash *ConsistentHash) Leastload() string {
 			no = k
 		}
 	}
+	chash.RUnlock()
 	if remodeAddr == "" {
 		chash.ring[0].reqNo++
 		return chash.ring[0].remoteAddr
@@ -142,15 +145,16 @@ realNodeKey 如果长度不为0说明要增加的是一个虚拟节点。realNod
 func (chash *ConsistentHash) AddNode(svrAddr string) bool {
 	hashed := _hash([]byte(svrAddr))
 
-	if _, found := chash.ring[hashed]; found {
-		log.Warn("Hash crash, chash node is existed in ring!")
+	if v, found := chash.ring[hashed]; found {
+		log.Warnf("Hash crash, chash node [%s:%d] is existed in ring [%s:%d]", svrAddr, hashed, v.remoteAddr, hashed)
 		return false
 	}
 
 	node := new(Node)
 	node.remoteAddr = svrAddr
-
+	chash.Lock()
 	chash.ring[hashed] = node
+	chash.Unlock()
 	chash.nodeList.Insert(hashed)
 	log.Debugf("Add a new node %s into hash ring,hashed=%d", svrAddr, hashed)
 

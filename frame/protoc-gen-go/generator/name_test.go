@@ -34,7 +34,7 @@ package generator
 import (
 	"testing"
 
-	"iceberg/frame/protoc-gen-go/descriptor"
+	"github.com/kwins/iceberg/frame/protoc-gen-go/descriptor"
 )
 
 func TestCamelCase(t *testing.T) {

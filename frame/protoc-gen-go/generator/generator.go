@@ -52,9 +52,10 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/golang/protobuf/proto"
 	"github.com/kwins/iceberg/frame/protoc-gen-go/descriptor"
 	plugin "github.com/kwins/iceberg/frame/protoc-gen-go/plugin"
+
+	"github.com/golang/protobuf/proto"
 )
 
 // generatedCodeVersion indicates a version of the generated code.
@@ -1783,7 +1784,7 @@ func (g *Generator) generateMessage(message *Descriptor) {
 		fieldName, fieldGetterName := ns[0], ns[1]
 		typename, wiretype := g.GoType(message, field)
 		jsonName := *field.Name
-		tag := fmt.Sprintf("protobuf:%s json:%q xml:%q", g.goTag(message, field, wiretype), jsonName+",omitempty", jsonName+",omitempty")
+		tag := fmt.Sprintf("protobuf:%s json:%q xml:%q", g.goTag(message, field, wiretype), jsonName, jsonName+",omitempty")
 
 		fieldNames[field] = fieldName
 		fieldGetterNames[field] = fieldGetterName

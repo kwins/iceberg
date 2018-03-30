@@ -3,19 +3,23 @@ package frame
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
-	"github.com/coreos/etcd/clientv3"
 	"github.com/kwins/iceberg/frame/config"
 	log "github.com/kwins/iceberg/frame/icelog"
 	"github.com/kwins/iceberg/frame/protocol"
+
+	"github.com/coreos/etcd/clientv3"
 	"github.com/opentracing/opentracing-go"
 	zipkin "github.com/openzipkin/zipkin-go-opentracing"
+	"google.golang.org/grpc"
 )
 
 const root = "/"
@@ -37,8 +41,6 @@ var (
 	errConnectURIIsNil      = errors.New("Connect uri not found")
 	errNotFoundConnect      = errors.New("Not found connection")
 	errConnectRemoteAddrnil = errors.New("Connect remoteAddr is null")
-	errNotFoundMethod       = errors.New("Not found Method!")
-	errForgetEtcdCfg        = errors.New("forget set etcd config or not start etcd server?")
 )
 
 // Discover 服务发现的类结构
@@ -68,27 +70,40 @@ type Discover struct {
 	// your server
 	service interface{} // 提供服务
 
+	// middleware
+	prepare []Middleware
+	after   []Middleware
+
 	// server describe
 	mdLocker sync.RWMutex // method
 	md       map[string]*MethodDesc
 
+	// 其他服务方法映射
+	mtLocker sync.RWMutex
+	mdtables map[string]*Medesc
+
 	localListenAddr string
 
 	innerid int64 // 内部请求ID
+
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 var discoverOnce sync.Once
-var discoverInstance *Discover
+var instance *Discover
 
-// DiscoverInstance 返回GateSvr的单例对象
-func DiscoverInstance() *Discover {
+// Instance 返回GateSvr的单例对象
+func Instance() *Discover {
 	discoverOnce.Do(func() {
-		discoverInstance = new(Discover)
-		discoverInstance.md = make(map[string]*MethodDesc)
-		discoverInstance.topology = make(map[string]*ConsistentHash)
-		discoverInstance.connholder = make(map[string]*ConnActor)
+		instance = new(Discover)
+		instance.md = make(map[string]*MethodDesc)
+		instance.mdtables = make(map[string]*Medesc)
+		instance.ctx, instance.cancel = context.WithCancel(context.TODO())
+		instance.topology = make(map[string]*ConsistentHash)
+		instance.connholder = make(map[string]*ConnActor)
 	})
-	return discoverInstance
+	return instance
 }
 
 // RegisterAndServe 后端服务注册并开启
@@ -99,7 +114,21 @@ func RegisterAndServe(sd *ServiceDesc, ss interface{}, cfg *config.BaseCfg) {
 		log.Fatalf("iceberg: RegisterAndServe found the handler of type %v that does not satisfy %v", st, ht)
 		return
 	}
-	s := DiscoverInstance()
+
+	sh := NewSignalHandler()
+	var h Singal
+	sht := reflect.TypeOf((*Singal)(nil)).Elem()
+	if !st.Implements(sht) {
+		h = defaultServerSignal
+	} else {
+		h = ss.(Singal)
+	}
+	sh.Register(syscall.SIGTERM, h)
+	sh.Register(syscall.SIGQUIT, h)
+	sh.Register(syscall.SIGINT, h)
+	sh.Start()
+
+	s := Instance()
 
 	// 注册本服务信息
 	s.service = ss
@@ -117,7 +146,6 @@ func RegisterAndServe(sd *ServiceDesc, ss interface{}, cfg *config.BaseCfg) {
 	if err != nil {
 		panic(err.Error())
 	}
-
 	listener, err := net.ListenTCP("tcp", add)
 	if err != nil {
 		panic(err.Error())
@@ -130,34 +158,59 @@ func RegisterAndServe(sd *ServiceDesc, ss interface{}, cfg *config.BaseCfg) {
 			continue
 		}
 		ca := ConnActor{c: c, reconn: false}
+		ca.ctx, ca.cancel = context.WithCancel(context.TODO())
 		ca.id = atomic.AddUint32(&connActorID, CA_BROKEN)
 		ca.connType = passiveConnActor
+		ca.p = &sync.Pool{
+			New: func() interface{} {
+				return new(icecontext)
+			}}
 		ca.initConnActor(c)
 	}
 }
 
 // GetInnerID 获取内部服务ID
 func GetInnerID() int64 {
-	return atomic.AddInt64(&DiscoverInstance().innerid, 1)
+	return atomic.AddInt64(&Instance().innerid, 1)
+}
+
+// MeTables 获取方法 集合
+func MeTables() map[string]Medesc {
+	var mt = make(map[string]Medesc)
+	Instance().mtLocker.RLock()
+	for k, v := range Instance().mdtables {
+		mt[k] = *v
+	}
+	Instance().mtLocker.RUnlock()
+	return mt
 }
 
 // DeliverTo deliver request to anthor serve
 func DeliverTo(task *protocol.Proto) (*protocol.Proto, error) {
-	conn, err := DiscoverInstance().DrectDispatch(task.GetServeURI())
+	conn, err := Instance().Get(task.GetServeURI())
 	if err != nil {
+		log.Error(err.Error())
 		return nil, err
 	}
-
 	var b []byte
 	if b, err = task.Serialize(); err != nil {
 		return nil, err
 	}
-
 	resp, err := conn.RequestAndReponse(b, task.GetRequestID())
 	if err != nil {
 		return nil, err
 	}
 	return resp, nil
+}
+
+// Prepare 添加prepare middleware
+func Prepare(mw ...Middleware) {
+	Instance().prepare = append(Instance().prepare, mw...)
+}
+
+// After 添加after middleware
+func After(mw ...Middleware) {
+	Instance().after = append(Instance().after, mw...)
 }
 
 // Start 开启服务发现机制
@@ -180,18 +233,12 @@ func (discover *Discover) Start(srvName string, cfg *config.BaseCfg, selfURI []s
 	if err := discover.selfRegist(); err != nil {
 		panic(err.Error())
 	}
-
-	if err := discover.StartZipkinTrace(cfg.Zipkin.EndPoints,
-		discover.localListenAddr, discover.name); err != nil {
-		log.Error(err.Error())
-	}
-
 	go discover.discover()
-
+	// 程序启动告警
 	log.Infof("%s start up,local listen addr:%s,serve uri:%v", discover.name, discover.localListenAddr, discover.selfURI)
 }
 
-// StartZipkinTrace 启动zipkin
+// StartZipkinTrace 启动zipkin 暂不使用
 func (discover *Discover) StartZipkinTrace(endPoint, srvHost, srvName string) error {
 	// Create our HTTP collector.
 	if endPoint == "" {
@@ -219,19 +266,40 @@ func (discover *Discover) StartZipkinTrace(endPoint, srvHost, srvName string) er
 	return nil
 }
 
-// DrectDispatch 负载均衡的进行分发消息
-// 分发的时候会进行负载均衡的处理
-// URI 请求的接口路径
-// 匹配节点时会进行完全匹配
-func (discover *Discover) DrectDispatch(URI string) (*ConnActor, error) {
+// Get 获取URI对应的一个可用连接
+func (discover *Discover) Get(URI string) (*ConnActor, error) {
 	discover.topoLocker.RLock()
 	if node, ok := discover.topology[URI]; ok {
 		discover.topoLocker.RUnlock()
-
 		return discover.getConnActor(node.Leastload(), URI)
 	}
 	discover.topoLocker.RUnlock()
-	return nil, errConnectURIIsNil
+	return nil, fmt.Errorf("%s not found in topology", URI)
+}
+
+// Allowed 是否允许不认证直接访问，给Gateway使用
+func (discover *Discover) Allowed(path string) bool {
+	low := strings.ToLower(path)
+	ps := strings.Split(low, "/")
+	psl := len(ps)
+	if psl < 4 {
+		return false
+	}
+
+	mk := strings.Join(intercept(ps), "@")
+
+	discover.mtLocker.RLock()
+	if md := discover.mdtables[mk]; md == nil {
+		discover.mtLocker.RUnlock()
+		return false
+	} else {
+		discover.mtLocker.RUnlock()
+		return md.Allowed
+	}
+}
+
+func intercept(ss []string) []string {
+	return ss[2:5]
 }
 
 // 从连接池中拿到远端连接句柄
@@ -246,11 +314,13 @@ func (discover *Discover) getConnActor(remoteAddr, uri string) (*ConnActor, erro
 	var connactor *ConnActor
 
 	createConn := func() error {
+		log.Debug("try ot connect:", remoteAddr)
 		c, err := net.Dial("tcp", remoteAddr)
 		if err != nil {
+			log.Error(err.Error())
 			return err
 		}
-		log.Debugf("init connect [%s] -> [%s] backend serve.", remoteAddr, uri)
+		log.Debugf("connect backend serve %s success[%s]", remoteAddr, uri)
 		connactor = NewActiveConnActor(c)
 		discover.connLocker.Lock()
 		discover.connholder[remoteAddr] = connactor
@@ -310,39 +380,57 @@ func (discover *Discover) selfRegist() error {
 		return errForgetSelfURI
 	}
 	for _, uri := range discover.selfURI {
+		resp, err := discover.kapi.Grant(context.TODO(), 21)
+		if err != nil {
+			return err
+		}
+		leaseResp, err := discover.kapi.KeepAlive(context.TODO(), resp.ID)
+		if err != nil {
+			return err
+		}
+
 		svrURI := uri + "/provider/name"
-		_, err := discover.kapi.Put(context.TODO(), svrURI, discover.name)
-		if err != nil {
-			return err
-		}
 		log.Debugf("set %s=%s", svrURI, discover.name)
+		_, err = discover.kapi.Put(context.TODO(), svrURI, discover.name, clientv3.WithLease(resp.ID))
+		if err != nil {
+			return err
+		}
+
+		// 先KeepAlive 在Put临时节点
 		svrURI = uri + "/provider/instances/" + discover.localListenAddr
-		resp, err := discover.kapi.Grant(context.TODO(), 0)
-		if err != nil {
-			return err
-		}
-		_, err = discover.kapi.KeepAlive(context.TODO(), resp.ID)
-		if err != nil {
-			return err
-		}
-		log.Debugf("set %s=%s", svrURI, discover.localListenAddr)
+		log.Debugf("set %s=%s with leaseid=%x", svrURI, discover.localListenAddr, resp.ID)
 		_, err = discover.kapi.Put(context.TODO(), svrURI, discover.localListenAddr, clientv3.WithLease(resp.ID))
 		if err != nil {
 			return err
 		}
-		// 主动获取本服务节点状态，防止意外情况
-		go func(k, v string, leaseid clientv3.LeaseID) {
+
+		// 注册方法表
+		for k, v := range discover.md {
+			mdname := uri + "/" + strings.ToLower(v.MethodName) + "/provider/allowed/" + v.Allowed
+			_, err := discover.kapi.Put(context.TODO(), mdname, k, clientv3.WithLease(resp.ID))
+			if err != nil {
+				return err
+			}
+		}
+
+		go func(uri string, leaseid clientv3.LeaseID) {
+			t := time.NewTicker(time.Second * 10)
 			for {
-				_, err = discover.kapi.Get(context.TODO(), k)
-				if err != nil {
-					log.Fatalf("iceberg:%s svr uri %s get fail,detail=%s", discover.name, k, err.Error())
-					discover.kapi.Put(context.TODO(), k, v, clientv3.WithLease(resp.ID))
-				}
 				select {
-				case <-time.After(time.Second * 2):
+				case <-leaseResp:
+				case <-t.C:
+					gResp, err := discover.kapi.Get(context.TODO(), uri)
+					if err != nil || len(gResp.Kvs) == 0 {
+						log.Fatalf("iceberg:%s svr uri %s get fail,detail=%v",
+							discover.name, uri, err)
+						discover.kapi.Put(context.TODO(),
+							uri, discover.localListenAddr, clientv3.WithLease(leaseid))
+					}
+				case <-discover.ctx.Done():
+					return
 				}
 			}
-		}(svrURI, discover.localListenAddr, resp.ID)
+		}(svrURI, resp.ID)
 	}
 	return nil
 }
@@ -357,13 +445,16 @@ func (discover *Discover) getMethod(mdName string) *MethodDesc {
 }
 
 func (discover *Discover) readyEtcd(cfg *config.EtcdCfg) error {
-	if len(cfg.EndPoints) == 0 {
-		return errForgetEtcdCfg
-	}
 	api, err := clientv3.New(clientv3.Config{
-		Endpoints:   cfg.EndPoints,
-		Username:    cfg.User,
-		Password:    cfg.Psw,
+		Endpoints: cfg.EndPoints,
+		Username:  cfg.User,
+		Password:  cfg.Psw,
+
+		DialOptions: []grpc.DialOption{
+			grpc.WithTimeout(time.Second * 3),
+			grpc.WithInsecure(),
+		},
+
 		DialTimeout: time.Second * cfg.Timeout,
 	})
 	if err != nil {
@@ -375,7 +466,11 @@ func (discover *Discover) readyEtcd(cfg *config.EtcdCfg) error {
 		return err
 	}
 	for _, subNode := range resp.Kvs {
-		discover.setTopo(string(subNode.Key), string(subNode.Value))
+		if len(subNode.Key) == 0 || len(subNode.Value) == 0 {
+			log.Warnf("iceberg:ready etcd key=%s value=%s", string(subNode.Key), string(subNode.Value))
+		} else {
+			discover.setTopo(string(subNode.Key), string(subNode.Value))
+		}
 	}
 	return nil
 }
@@ -392,6 +487,8 @@ func (discover *Discover) discover() {
 			for _, event := range notify.Events {
 				key := string(event.Kv.Key)
 				value := string(event.Kv.Value)
+				log.Debugf("iceberg:watch event:%s key:%s value:%s leasid:%x",
+					event.Type.String(), key, value, event.Kv.Lease)
 				switch event.Type {
 				case clientv3.EventTypePut:
 					discover.setTopo(key, value)
@@ -399,37 +496,83 @@ func (discover *Discover) discover() {
 					discover.rmTopo(key, value)
 				}
 			}
+		case <-discover.ctx.Done():
+			log.Infof("iceberg:dicover watch graceful exit.")
+			return
 		}
 	}
 }
 
 func (discover *Discover) setTopo(key, value string) {
 	segment := strings.Split(string(key), "/")
-	if l := len(segment); l < 3 {
+	var segl int
+	if segl = len(segment); segl < 3 {
 		return
 	}
-	if leafname := segment[len(segment)-1]; leafname == "config" {
+	if leafname := segment[segl-1]; leafname == "config" {
 
 	} else if leafname == "name" {
 
-	} else if segment[len(segment)-2] == "instances" {
-		interfaceURI := strings.Join(segment[:len(segment)-3], "/")
+	} else if segment[segl-2] == "instances" {
+		interfaceURI := strings.Join(segment[:segl-3], "/")
 		discover.regist(interfaceURI, value)
+
+	} else if segment[segl-2] == "allowed" {
+		discover.addMethod(key, value)
 	}
+}
+
+func (discover *Discover) addMethod(mdkey, mdValue string) {
+	if len(mdkey) < len(root) {
+		return
+	}
+
+	ns := strings.Split(mdkey, "/")
+	nsl := len(ns)
+	if nsl < 4 {
+		return
+	}
+	var md Medesc
+	if ns[nsl-1] == "true" {
+		md.Allowed = true
+	} else {
+		md.Allowed = false
+	}
+	md.MdName = mdValue
+	mk := strings.Join(intercept(ns), "@")
+	discover.mtLocker.Lock()
+	discover.mdtables[mk] = &md
+	discover.mtLocker.Unlock()
+}
+
+func (discover *Discover) delMethod(mdkey string) {
+	ns := strings.Split(mdkey, "/")
+	nsl := len(ns)
+	if nsl < 4 {
+		return
+	}
+	mk := strings.Join(intercept(ns), "@")
+	discover.mtLocker.Lock()
+	delete(discover.mdtables, mk)
+	discover.mtLocker.Unlock()
 }
 
 func (discover *Discover) rmTopo(key, value string) {
 	segment := strings.Split(string(key), "/")
-	if l := len(segment); l < 3 {
+	var l int
+	if l = len(segment); l < 3 {
 		return
 	}
-	if leafname := segment[len(segment)-1]; leafname == "config" {
+	if leafname := segment[l-1]; leafname == "config" {
 		// TO DO
 	} else if leafname == "name" {
 		// TO DO
-	} else if segment[len(segment)-2] == "instances" {
-		interfaceURI := strings.Join(segment[:len(segment)-3], "/")
-		discover.unRegist(interfaceURI, segment[len(segment)-1])
+	} else if segment[l-2] == "instances" {
+		interfaceURI := strings.Join(segment[:l-3], "/")
+		log.Debug("rmTopo:", interfaceURI, " ", segment[l-1])
+		discover.unRegist(interfaceURI, segment[l-1])
+	} else if segment[l-2] == "allowed" {
+		// discover.delMethod(key)
 	}
 }
 
@@ -441,6 +584,7 @@ func (discover *Discover) regist(URI string, svrAddr string) {
 
 	// 过滤掉监听到自己的状态变化产生的通知
 	if discover.localListenAddr == svrAddr {
+		log.Debugf("iceberg:discover self node changed %s", svrAddr)
 		return
 	}
 
@@ -452,11 +596,11 @@ func (discover *Discover) regist(URI string, svrAddr string) {
 	if topo, found = discover.topology[URI]; !found {
 		topo = NewConsistentHash()
 		discover.topology[URI] = topo
-		log.Infof("Regist a new service at direction %s, the addr is %s", URI, svrAddr)
+		log.Debugf("Regist a new service at direction %s, the addr is %s", URI, svrAddr)
 	}
 
 	// 用后台服务的地址作为key来生成hash节点
-	log.Infof("AddNode: %s svrAddr:%s", URI, svrAddr)
+	log.Debugf("AddNode: %s svrAddr:%s", URI, svrAddr)
 	topo.AddNode(svrAddr)
 }
 
@@ -467,13 +611,13 @@ func (discover *Discover) unRegist(URI string, nodeHashKey string) {
 	if len(URI) == 0 {
 		return
 	}
-
 	if len(nodeHashKey) > 0 {
 		discover.topoLocker.Lock()
 		defer discover.topoLocker.Unlock()
 		if topo, found := discover.topology[URI]; found {
 			remoteAddr := topo.RmNode([]byte(nodeHashKey))
-			log.Infof("Remove backend serve %s, nodeHashKey %s remoteAddr %s.", URI, nodeHashKey, remoteAddr)
+			log.Debugf("Remove backend serve %s, nodeHashKey %s remoteAddr %s.",
+				URI, nodeHashKey, remoteAddr)
 			// 清掉已经建立的连接
 			if remoteAddr != "" {
 				if connactor, found := discover.connholder[remoteAddr]; found {
@@ -482,6 +626,10 @@ func (discover *Discover) unRegist(URI string, nodeHashKey string) {
 					}
 					delete(discover.connholder, remoteAddr)
 				}
+			}
+			if len(topo.nodeList) == 0 {
+				log.Debugf("Remove backend topology:%s", URI)
+				delete(discover.topology, URI)
 			}
 		}
 	} else {
@@ -507,8 +655,17 @@ func (discover *Discover) unRegist(URI string, nodeHashKey string) {
 
 // Quit Quit
 func (discover *Discover) Quit() {
-	discover.connLocker.Lock()
-	defer discover.connLocker.Unlock()
+	// 停止Etcd Watch
+	discover.cancel()
+	// 先删除ETCD节点，再关闭连接，不然会出现ETCD节点丢失的情况
+	for _, v := range discover.selfURI {
+		uri := v + "/provider/instances/" + discover.localListenAddr
+		discover.kapi.Delete(context.TODO(), uri)
+		log.Debugf("iceberg:%s quit delete etcd key:%s", discover.name, uri)
+	}
+	discover.kapi.Close()
+	discover.connLocker.RLock()
+	defer discover.connLocker.RUnlock()
 	for k, c := range discover.connholder {
 		if c != nil {
 			delete(discover.connholder, k)
