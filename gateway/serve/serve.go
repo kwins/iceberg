@@ -47,7 +47,6 @@ func (gw *Gateway) ListenAndServe() {
 
 // Stop Stop
 func (gw *Gateway) Stop(s os.Signal) bool {
-	frame.Instance().Quit()
 	log.Infof("gateway graceful exit.")
 	return true
 }

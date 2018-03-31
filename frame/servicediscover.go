@@ -653,8 +653,8 @@ func (discover *Discover) unRegist(URI string, nodeHashKey string) {
 	}
 }
 
-// Quit Quit
-func (discover *Discover) Quit() {
+// quit unregister
+func (discover *Discover) quit() {
 	// 停止Etcd Watch
 	discover.cancel()
 	// 先删除ETCD节点，再关闭连接，不然会出现ETCD节点丢失的情况
@@ -663,13 +663,14 @@ func (discover *Discover) Quit() {
 		discover.kapi.Delete(context.TODO(), uri)
 		log.Debugf("iceberg:%s quit delete etcd key:%s", discover.name, uri)
 	}
+
 	discover.kapi.Close()
 	discover.connLocker.RLock()
-	defer discover.connLocker.RUnlock()
 	for k, c := range discover.connholder {
 		if c != nil {
 			delete(discover.connholder, k)
 			c.Close()
 		}
 	}
+	discover.connLocker.RUnlock()
 }

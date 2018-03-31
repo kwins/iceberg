@@ -70,7 +70,6 @@ func (id *Hello) Timeout(c frame.Context) error {
 
 // Stop Stop
 func (id *Hello) Stop(s os.Signal) bool {
-	frame.Instance().Quit()
 	log.Infof("hi graceful exit.")
 	return true
 }

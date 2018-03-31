@@ -56,7 +56,6 @@ func (id *Hi) SayHi(c frame.Context) error {
 
 // Stop Stop
 func (id *Hi) Stop(s os.Signal) bool {
-	frame.Instance().Quit()
 	log.Infof("hi graceful exit.")
 	return true
 }

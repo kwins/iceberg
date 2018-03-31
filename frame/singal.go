@@ -21,7 +21,7 @@ type Singal interface {
 type defaultSingal struct{}
 
 func (ds *defaultSingal) Stop(s os.Signal) bool {
-	Instance().Quit()
+	Instance().quit()
 	log.Warnf("Receive signal %s; Exit now.", s.String())
 	return true
 }
@@ -30,11 +30,6 @@ type ignoreSigal struct{}
 
 func (ig *ignoreSigal) Stop(s os.Signal) bool {
 	log.Warnf("Receive signal %s; Exit now.", s.String())
-	return true
-}
-
-func defaultSignalProcessor(s os.Signal) bool {
-	log.Debug("ignore:", s.String())
 	return true
 }
 
@@ -90,6 +85,7 @@ func (shr *SignalHandler) Start() {
 func (shr *SignalHandler) handle(s os.Signal) {
 	if _, exist := shr.handlerMap[s]; exist {
 		if shr.handlerMap[s].Stop(s) {
+			Instance().quit()
 			os.Exit(0)
 		}
 	} else {
