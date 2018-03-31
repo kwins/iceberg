@@ -21,7 +21,6 @@ type Singal interface {
 type defaultSingal struct{}
 
 func (ds *defaultSingal) Stop(s os.Signal) bool {
-	Instance().quit()
 	log.Warnf("Receive signal %s; Exit now.", s.String())
 	return true
 }
