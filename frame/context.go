@@ -4,13 +4,14 @@ import (
 	goctx "context"
 	"encoding/json"
 	"encoding/xml"
-	log "github.com/kwins/iceberg/frame/icelog"
-	"github.com/kwins/iceberg/frame/protocol"
 	"net"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+
+	log "github.com/kwins/iceberg/frame/icelog"
+	"github.com/kwins/iceberg/frame/protocol"
 
 	"github.com/golang/protobuf/proto"
 )
@@ -398,14 +399,16 @@ func (c *icecontext) XML2(code int, msg string, data interface{}) error {
 }
 
 func (c *icecontext) appendBiz(args []interface{}) []interface{} {
-	var newargs []interface{}
-	newargs = append(newargs, "Bizid:"+c.Bizid()+" ")
-	newargs = append(newargs, args...)
+	var newargs = make([]interface{}, len(args)+1)
+	newargs[0] = "Bizid:" + c.Bizid() + " "
+	for i := range args {
+		newargs[i+1] = args[i]
+	}
 	return newargs
 }
 
 func (c *icecontext) appendf(fmt string, args []interface{}) (string, []interface{}) {
-	return "Bizid:%s " + fmt, c.appendBiz(args)
+	return "%s " + fmt, c.appendBiz(args)
 }
 
 // Debug global debug
